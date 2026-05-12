@@ -1,0 +1,10 @@
+torch>=2.2.0
+numpy>=1.26.0
+pandas>=2.2.0
+pyarrow>=15.0.0      # Parquet reading
+scikit-learn>=1.4.0  # train/val split, metrics
+onnx>=1.16.0
+onnxruntime>=1.18.0
+kaggle>=1.6.0        # dataset download
+tqdm>=4.66.0
+matplotlib>=3.8.0    # training curves
