@@ -1,14 +1,21 @@
 """
 Landmark selection for the fingerspelling CTC model.
 
-We follow the Kaggle 1st-place approach: 130 selected MediaPipe Holistic
-landmarks per frame, drawn from face/lips/eyes/pose/hands. 3 axes each → 390
-floats per frame.
+We follow a Kaggle-winners-style approach: 127 selected MediaPipe Holistic
+landmarks per frame (40 lips + 16 left-eye + 16 right-eye + 4 nose + 9 pose
++ 2 × 21 hands), 3 axes each → 381 floats per frame. The exact counts are
+derived from the index lists below; see ``N_LANDMARKS`` / ``N_FEATURES``.
 
 Module exports:
 - SELECTED_COLS: list[str] of parquet column names in canonical order
 - N_LANDMARKS, N_FEATURES: convenience constants
 - normalize_sequence(arr): per-sequence wrist-anchored normalisation
+
+**MUST stay in sync with** ``openhand/backend/services/ctc_landmarks.py``.
+That file is a deliberate duplicate (the backend doesn't import from this
+repo). Any change to the index lists, group order, or normalisation
+formula here must be mirrored there, or the deployed CTC model will see
+inputs with the wrong shape/ordering and silently produce garbage.
 """
 
 from __future__ import annotations

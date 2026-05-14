@@ -4,7 +4,7 @@ One-time pre-extraction of fingerspelling sequences to fast .npz files.
 For each sequence in train.csv:
   - Load its frames from the appropriate Parquet shard (touching each shard
     exactly once across the whole dataset)
-  - Select the 130 Kaggle-winner landmarks (390 features/frame)
+  - Select the 127-landmark Kaggle-winner subset (381 features/frame)
   - Save a single .npz with the landmarks array AND an explicit missing mask
     (so downstream training does NOT have to use 0-as-sentinel)
 
