@@ -35,8 +35,8 @@ from model.landmarks import N_FEATURES
 
 
 def _fuse_conv_bn_in_place(seq: torch.nn.Sequential) -> None:
-    """Replace adjacent Conv1d→BatchNorm1d pairs in a Sequential with a single
-    fused Conv1d (BN folded into weights/bias). Other layers are left alone."""
+    """Replace adjacent Conv1d->BatchNorm1d pairs in a Sequential with a
+    single fused Conv1d (BN folded into weights/bias)."""
     new_children = []
     skip_next = False
     items = list(seq.named_children())

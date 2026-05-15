@@ -52,7 +52,7 @@ def main():
     else:
         # Synthetic: random unit-normalized landmarks
         vec = np.random.randn(1, 63).astype(np.float32) * 0.1
-        print("(Using random synthetic landmarks — prediction will be meaningless)")
+        print("(Using random synthetic landmarks; prediction will be meaningless)")
 
     t0 = time.perf_counter()
     logits = sess.run(None, {"landmarks": vec})[0][0]

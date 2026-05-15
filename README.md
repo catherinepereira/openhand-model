@@ -1,224 +1,187 @@
 # openhand-model
 
-Training pipeline for the ASL sign classifier that powers OpenHand's backend.
+Training code for the two models that power [openhand](../openhand): a
+small MLP for per-frame ASL alphabet classification, and a CTC
+transformer for fingerspelling phrase transcription.
 
-Trains a small MLP on MediaPipe hand landmarks and exports it to ONNX for
-CPU inference in `openhand/backend`.
+This repo is for retraining or experimenting with the models. If you
+just want to run OpenHand, you don't need it; the alphabet model ships
+with the main repo and the CTC ONNX can be downloaded as a release
+artifact.
 
-## Current status (2026-05-12)
-
-**MVP trained and exported.** ASL Alphabet classifier ready for backend integration.
-
-| Metric | Value |
-|--------|-------|
-| Test accuracy | **98.95%** (held-out 5% split) |
-| Val accuracy at best epoch | 98.5% |
-| Training samples | 62,819 (after MediaPipe hand-detection filter) |
-| Model size | 62K params, ~250 KB ONNX |
-| CPU inference latency | **0.019 ms/frame** (target was <1ms) |
-| Classes | 26 (A–Z) |
-| Input | 63 floats (21 landmarks × xyz, wrist-centred, unit-scaled) |
-| Artifacts | `exports/asl_classifier.onnx`, `exports/model_meta.json`, `exports/best.pt` |
-
-### Pipeline history
-
-| Stage | Status |
-|-------|--------|
-| Fingerspelling dataset downloaded (~160 GB) | Done — kept in `data/raw/` for future seq2seq work |
-| Fingerspelling preprocessing (median-frame per character) | **Abandoned** — naive frame slicing gave ~30% accuracy because frames aren't aligned to characters (the dataset is designed for CTC sequence transcription, not per-letter classification) |
-| ASL Alphabet image dataset downloaded (~1 GB) | Done |
-| MediaPipe landmark extraction on 87K images | Done (62,819 with detected hands, 15,181 skipped) |
-| Train MLP on alphabet landmarks | Done — 98.95% test accuracy |
-| ONNX export | Done |
-| Backend integration | Next |
-
-**Why the dataset switch:** the fingerspelling dataset uses continuous video of full
-phrases ("3 creekhouse", "https://jsi.is/hukuoka") with no frame-level
-character labels — it's a sequence-to-sequence task. The ASL Alphabet dataset
-already isolates one letter per image, which is the right shape for OpenHand's
-real-time per-frame classifier. The fingerspelling data stays on disk for a
-later CTC/temporal-model upgrade.
-
-## How it fits into OpenHand
-
-```
-webcam frame
-    → MediaPipe (openhand/backend/services/mediapipe_service.py)
-    → 21 landmarks (63 floats, wrist-centred + scaled)
-    → ONNX model (openhand/backend/models/asl_classifier.onnx)   ← trained here
-    → predicted letter + confidence
-    → WebSocket → frontend
-```
-
-The trained ONNX file is a drop-in replacement for the current rule-based
-`SignClassifier` in `openhand/backend/services/classifier.py`.
-
-## Structure
+## What's in here
 
 ```
 openhand-model/
   model/
-    mlp.py        # ASLClassifier: 3-layer MLP [63→256→128→64→26]
-    dataset.py    # ASLDataset + load_splits() with augmentation
+    mlp.py                   Alphabet classifier (3-layer MLP)
+    ctc_transformer.py       Phrase CTC model (Conv1D stem + Transformer)
+    landmarks.py             127-landmark selection + normalization
+    dataset.py               Alphabet dataset wrapper
+    fingerspelling_dataset.py  CTC dataset + augmentation + collate
   scripts/
-    download_data.py        # Kaggle API download (fingerspelling) → data/raw/
-    preprocess.py           # Fingerspelling Parquet → landmarks (abandoned for MVP)
-    preprocess_alphabet.py  # ASL Alphabet images → MediaPipe landmarks → X.npy + y.npy   ← MVP path
-    train.py                # Training loop → exports/best.pt
-    export_onnx.py          # PyTorch → ONNX → exports/asl_classifier.onnx
-    evaluate.py             # Per-class accuracy + confusion matrix
-    infer.py                # Single-frame inference (smoke test)
-  data/
-    raw/                  # Fingerspelling Parquet files (gitignored, ~160 GB) — kept for later
-    asl-alphabet/         # ASL Alphabet image dataset (gitignored, ~1 GB)
-    processed/            # Fingerspelling preprocessed (abandoned, may delete)
-    processed_alphabet/   # X.npy, y.npy, label_map.json   ← MVP training data
-    hand_landmarker.task  # MediaPipe Tasks-API model (~8 MB)
-  exports/
-    best.pt                  # Best PyTorch checkpoint
-    asl_classifier.onnx      # Export for backend
-    model_meta.json          # num_classes, label_map, accuracy
-    training_curves.png      # Loss + accuracy plots
+    download_data.py             Kaggle competition downloader (fingerspelling)
+    download_mediapipe_model.py  Pulls the hand_landmarker.task file
+    preprocess_alphabet.py       JPEGs -> MediaPipe -> landmark vectors
+    preprocess_fingerspelling.py Parquet shards -> per-sequence .npz files
+    train.py                     Train the alphabet MLP
+    train_ctc.py                 Train the CTC transformer
+    evaluate.py                  Per-class accuracy + confusion matrix
+    export_onnx.py               Alphabet checkpoint -> ONNX
+    export_ctc_onnx.py           CTC checkpoint -> ONNX (with BN fusion)
+    infer.py                     Single-frame smoke test against the ONNX
+    dump_landmark_vectors.py     Test fixture generator (Python <-> TS parity)
+  data/                          Datasets land here (gitignored)
+  exports/                       Checkpoints, ONNX, training curves
   requirements.txt
 ```
 
 ## Setup
 
 ```powershell
+git clone https://github.com/<you>/openhand-model
 cd openhand-model
+
 python -m venv venv
-venv\Scripts\Activate.ps1
+venv\Scripts\Activate.ps1     # macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
+
+# Fetch the MediaPipe hand landmarker (~8MB)
+python scripts/download_mediapipe_model.py
 ```
 
-## Full training pipeline (MVP — ASL Alphabet)
+CUDA is detected automatically. CPU works fine for the alphabet model
+(~10 min for 60 epochs); the CTC model is much heavier and you really
+do want a GPU (a 4090 trains an epoch in ~17 seconds on the full
+dataset).
 
-### 1. Download the ASL Alphabet dataset
+## The alphabet model
+
+This is the one that powers OpenHand's per-frame letter detection.
+Small, fast, 26 classes (A-Z).
 
 ```powershell
+# 1. Get the data (~1GB)
 kaggle datasets download -d grassknoted/asl-alphabet -p data/asl-alphabet
 Expand-Archive data/asl-alphabet/asl-alphabet.zip -DestinationPath data/asl-alphabet
-```
 
-87,000 labelled images, 3,000 per letter (A–Z + DEL/NOTHING/SPACE — we keep
-only A–Z for the MVP).
-
-### 2. Download the MediaPipe Hand Landmarker task model
-
-```powershell
-python scripts/_download_model.py
-# Saves ~8 MB to data/hand_landmarker.task
-```
-
-MediaPipe 0.10+ requires this `.task` file for the new Tasks API
-(`mp.solutions.hands` has been removed).
-
-### 3. Extract landmarks
-
-```powershell
+# 2. Run MediaPipe on every image, save 63-float landmark vectors
 python scripts/preprocess_alphabet.py
-# Output: data/processed_alphabet/X.npy  (N, 63)  float32
-#         data/processed_alphabet/y.npy  (N,)     int64
-#         data/processed_alphabet/label_map.json
-# Also writes data/processed_alphabet/_per_letter/*.npz checkpoints
-# so re-running resumes from where it left off.
-```
+# ~30 min on CPU, ~50 images/sec. Writes data/processed_alphabet/X.npy + y.npy.
+# Resumable: per-letter checkpoints in _per_letter/ are reused on re-run.
 
-Runs MediaPipe Hands on each image, keeps the 63-float landmark vector,
-wrist-centres and unit-scales it. About 30 minutes on CPU at ~50 images/sec.
-
-### 4. Train
-
-```powershell
+# 3. Train
 python scripts/train.py --data data/processed_alphabet --epochs 60 --batch 512
-# Best checkpoint saved to exports/best.pt
-# Training curves saved to exports/training_curves.png
-```
+# Best checkpoint: exports/best.pt
+# Training curves: exports/training_curves.png
 
-GPU is used automatically if available. On CPU only, reduce `--epochs` to 20
-for a quick sanity check.
-
-### 4. Export to ONNX
-
-```powershell
+# 4. Export to ONNX
 python scripts/export_onnx.py
-# Output: exports/asl_classifier.onnx
-# Prints avg CPU inference latency (target: <1ms/frame)
-```
+# exports/asl_classifier.onnx, plus a CPU latency benchmark
 
-### 5. Evaluate
-
-```powershell
+# 5. Check it
 python scripts/evaluate.py
-# Per-letter accuracy, confusion matrix
+# Per-letter accuracy + confusion matrix on the held-out test split
 ```
 
-### 6. Deploy to OpenHand
+To deploy back to OpenHand:
 
 ```powershell
-Copy-Item exports/asl_classifier.onnx ..\openhand\backend\models\
-Copy-Item exports/model_meta.json     ..\openhand\backend\models\
+copy exports\asl_classifier.onnx ..\openhand\backend\models\artifacts\
+copy exports\model_meta.json     ..\openhand\backend\models\artifacts\
 ```
 
-Then update `openhand/backend/services/classifier.py` to load the ONNX model
-via `onnxruntime` instead of the rule-based heuristics (see integration notes below).
+### Architecture
 
-## Model details
+| | |
+|-|-|
+| Input | 63 floats (21 MediaPipe hand landmarks, x/y/z, wrist at origin, p95-scaled) |
+| Hidden | 256 -> 128 -> 64, each with BatchNorm + ReLU + Dropout(0.3) |
+| Output | 26 logits |
+| Loss | CrossEntropy with label_smoothing=0.05 |
+| Optimizer | AdamW, lr=1e-3, weight_decay=1e-4, cosine schedule |
+| Augmentation | Gaussian noise sigma=0.01, scale jitter +/-5% |
+| Params | 62,267 |
+| CPU latency | 0.019ms per frame (onnxruntime) |
 
-| Component | Detail |
-|-----------|--------|
-| Input | 63 floats — 21 MediaPipe hand landmarks × (x, y, z), wrist at origin, scaled to unit range |
-| Architecture | Linear(63→256) → BN → ReLU → Dropout(0.3) → Linear(256→128) → BN → ReLU → Dropout(0.3) → Linear(128→64) → BN → ReLU → Dropout(0.3) → Linear(64→26) |
-| Output | 26 logits (A–Z) |
-| Loss | CrossEntropyLoss with label_smoothing=0.05 |
-| Optimizer | AdamW, lr=1e-3, weight_decay=1e-4 |
-| Scheduler | CosineAnnealingLR |
-| Augmentation | Gaussian noise σ=0.01, scale jitter ±5% |
-| Target accuracy | >95% top-1 on held-out signers |
+98.95% test accuracy on the held-out 5%. That number is high because
+the ASL Alphabet dataset is captured from one signer with consistent
+lighting; real-world accuracy on unseen hands will be lower.
 
-## Integrating the ONNX model into openhand/backend
+## The CTC model
 
-Replace the body of `SignClassifier.classify()` in
-`openhand/backend/services/classifier.py` with:
+For phrase transcription. Variable-length input, variable-length
+output, trained with CTC loss on the Kaggle ASL Fingerspelling
+competition data.
 
-```python
-import onnxruntime as ort
-import numpy as np, json
-from pathlib import Path
+```powershell
+# 1. Get the data (~160GB; you need a Kaggle account and accepted comp rules)
+python scripts/download_data.py
 
-_META = json.loads((Path(__file__).parent.parent / "models/model_meta.json").read_text())
-_SESS = ort.InferenceSession(
-    str(Path(__file__).parent.parent / "models/asl_classifier.onnx"),
-    providers=["CPUExecutionProvider"],
-)
-_LABEL_MAP = _META["label_map"]   # {"0": "a", "1": "b", ...}
+# 2. Preprocess: parquet shards -> per-sequence .npz files
+python scripts/preprocess_fingerspelling.py
+# Touches each parquet shard once. ~1-2 hours.
+# Writes data/processed_fingerspelling/sequences/*.npz.
 
-def classify(self, landmarks) -> Optional[DetectionResult]:
-    if landmarks is None or len(landmarks) != 21:
-        return None
-    vec = self._to_vec(landmarks)          # existing landmarks_to_array equivalent
-    logits = _SESS.run(None, {"landmarks": vec.reshape(1, 63)})[0][0]
-    probs = np.exp(logits) / np.exp(logits).sum()
-    idx = int(probs.argmax())
-    return DetectionResult(
-        sign=_LABEL_MAP[str(idx)].upper(),
-        confidence=float(probs[idx]),
-        landmarks=landmarks,
-    )
+# 3. Train
+python scripts/train_ctc.py --epochs 30 --batch 16 --augment
+# Held-out signers as the val set. Best checkpoint: exports/ctc/best.pt
+# A --smoke flag does 2 epochs on 256 sequences to verify the pipeline.
+
+# 4. Export to ONNX
+python scripts/export_ctc_onnx.py
+# exports/ctc/asl_ctc.onnx, ~116MB. BatchNorm is fused into the conv stem
+# because the dynamo exporter can't currently handle eval-mode BN.
 ```
 
-Add `onnxruntime` to `openhand/backend/requirements.txt`.
+To deploy:
 
-## Dataset notes
+```powershell
+copy exports\ctc\asl_ctc.onnx        ..\openhand\backend\models\artifacts\
+copy exports\ctc\model_meta.json     ..\openhand\backend\models\artifacts\asl_ctc_meta.json
+```
 
-**MVP (current)**: [ASL Alphabet](https://www.kaggle.com/datasets/grassknoted/asl-alphabet) — 87K images, 26 letter classes (3,000/letter), single hand per image, varied lighting. Per-frame classification — matches OpenHand's real-time inference shape exactly.
+### Architecture
 
-**Future seq2seq upgrade**: [ASL Fingerspelling](https://www.kaggle.com/competitions/asl-fingerspelling) — 120K+ sequences of full phrases with pre-extracted MediaPipe Holistic landmarks (Parquet). Already downloaded to `data/raw/`. Requires a temporal model (LSTM / 1D-CNN / Transformer) and CTC loss to use properly — naive frame-to-character slicing does not work (we tried, got 30% accuracy).
+| | |
+|-|-|
+| Input | (T, 381) per sequence: 127 landmarks (40 lips + 16 left eye + 16 right eye + 4 nose + 9 pose + 2*21 hands), 3 axes each |
+| Stem | Two 1D-conv blocks (kernel 5, BN, GELU) over the feature axis |
+| Encoder | 6-layer Transformer (d_model=256, nhead=8, FFN=1024, pre-LN, GELU) |
+| Head | Linear -> 60 logits per frame (59 chars + blank), log_softmax |
+| Loss | CTC + KL-to-uniform regularizer to discourage blank collapse |
+| Optimizer | AdamW, lr=1e-3, weight_decay=0.05, linear warmup -> cosine |
+| Augmentation | Time crop, time stretch, frame masking, group dropout, affine jitter |
+| Params | ~5.5M |
+| Val CER | 0.235 (beam search width=10), 0.250 (greedy) |
 
-**Possible expansion**: [Google ASL Signs](https://www.kaggle.com/competitions/asl-signs) — 250 isolated words, same Parquet format as fingerspelling.
+### Important notes
 
-## Known limitations
+- **The landmark feature ordering and normalization must match between
+  training and the deployed backend exactly.** `model/landmarks.py`
+  here and `openhand/backend/services/ctc_landmarks.py` over there are
+  intentional duplicates with a "must stay in sync" warning. There's a
+  parity test (`scripts/dump_landmark_vectors.py` + the matching TS
+  test) that catches drift.
+- The `missing` mask is part of the contract too: training data uses an
+  explicit per-landmark bool, not zero-equality. Treating zeros as
+  missing was the single most expensive bug to find.
+- The exported ONNX needs batch >= 2 to keep the batch axis dynamic
+  (a dummy of batch=1 becomes a static constant during dynamo trace).
+  The backend pads with an all-masked second item and discards the
+  output.
 
-- **Single-frame, no temporal context.** J and Z require motion to distinguish from I and D respectively; a static-frame model will confuse them. Mark these as "needs motion" in the UI until a temporal model is added.
-- **Single dominant hand.** Left-handed signers may see lower accuracy until we mirror-augment.
-- **ASL Alphabet dataset homogeneity.** All 87K images come from one signer with consistent lighting/background. MediaPipe landmark normalisation removes most of the cosmetic variance, but real-world accuracy will be lower than test-set accuracy until we add cross-signer data (the fingerspelling dataset, once we have a temporal model, has 100+ signers).
+## Tests / parity
+
+```powershell
+# Regenerate the Python<->TS fixture used by the frontend test
+python scripts/dump_landmark_vectors.py
+# Writes ../openhand/frontend/src/lib/__tests__/landmark_fixtures.json
+```
+
+That fixture is what catches drift between this repo's normalization
+formula and the TypeScript port in the frontend.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
