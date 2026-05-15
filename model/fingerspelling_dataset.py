@@ -1,16 +1,12 @@
 """
 Dataset for the ASL Fingerspelling sequences.
 
-Loads pre-extracted .npz files produced by
-``scripts/preprocess_fingerspelling.py`` — each file has the per-frame
-landmark tensor, an explicit per-landmark missing mask, and the target
-sequence already encoded as int indices.
+Loads pre-extracted .npz files produced by scripts/preprocess_fingerspelling.py.
+Each file has the per-frame landmark tensor, an explicit per-landmark missing
+mask, and the target sequence as int indices.
 
-Each sample = one full sequence (variable length T frames × N_FEATURES) +
-its target as a sequence of class indices.
-
-``ctc_collate`` pads variable-length sequences within a batch and returns
-the shapes CTCLoss expects.
+ctc_collate pads variable-length sequences within a batch and returns the
+shapes CTCLoss expects.
 """
 
 from __future__ import annotations
@@ -27,7 +23,6 @@ from .landmarks import GROUP_OFFSETS, N_FEATURES, N_LANDMARKS, normalize_sequenc
 
 
 _LANDMARK_GROUPS: dict[str, tuple[int, int]] = {
-    # (landmark-index start, landmark-index end-exclusive)
     "face":       (GROUP_OFFSETS["face"]       // 3, GROUP_OFFSETS["pose"]       // 3),
     "pose":       (GROUP_OFFSETS["pose"]       // 3, GROUP_OFFSETS["left_hand"]  // 3),
     "left_hand":  (GROUP_OFFSETS["left_hand"]  // 3, GROUP_OFFSETS["right_hand"] // 3),
@@ -42,8 +37,6 @@ class FingerspellingDataset(Dataset):
         sequences: pd.DataFrame,
         max_frames: int | None = 384,
         augment: bool = False,
-        # All augmentation parameters bundled below so train_ctc.py can tune
-        # them as a unit. Defaults reflect the "strong augmentation" recipe.
         time_crop_min: float = 0.70,
         time_stretch_range: tuple[float, float] = (0.85, 1.15),
         time_mask_max_spans: int = 2,
@@ -73,9 +66,8 @@ class FingerspellingDataset(Dataset):
         self, x: np.ndarray, missing: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         T = x.shape[0]
-        rng = np.random  # use module RNG; works fine across workers
+        rng = np.random
 
-        # 1. Time-axis crop — keep a contiguous span (0.70–1.00 of frames).
         if T > 4:
             keep_frac = rng.uniform(self.time_crop_min, 1.0)
             keep_len = max(4, int(T * keep_frac))
@@ -84,7 +76,6 @@ class FingerspellingDataset(Dataset):
             missing = missing[start : start + keep_len]
             T = x.shape[0]
 
-        # 2. Time stretch — resample to ~0.85–1.15× length via index interp.
         lo, hi = self.time_stretch_range
         if T > 4:
             stretch = rng.uniform(lo, hi)
@@ -95,8 +86,6 @@ class FingerspellingDataset(Dataset):
                 missing = missing[idx]
                 T = new_T
 
-        # 3. Random landmark-group dropout — with low prob, zero an entire
-        #    group for the whole sequence (face / pose / left_hand / right_hand).
         if self.group_dropout_prob > 0:
             for start_lm, end_lm in _LANDMARK_GROUPS.values():
                 if rng.random() < self.group_dropout_prob:
@@ -128,8 +117,6 @@ class FingerspellingDataset(Dataset):
 
         x = normalize_sequence(x, missing)
 
-        # 4. Affine jitter (post-normalisation): tiny scale + translation per
-        #    frame. Applied to all (x, y, z) coordinates uniformly.
         if self.augment and x.shape[0] > 0:
             lo, hi = self.affine_scale_range
             scale = np.random.uniform(lo, hi)
@@ -139,17 +126,14 @@ class FingerspellingDataset(Dataset):
             pts[..., 0] = pts[..., 0] * scale + tx
             pts[..., 1] = pts[..., 1] * scale + ty
             pts[..., 2] = pts[..., 2] * scale
-            # Keep absent landmarks at zero (they were re-zeroed by
-            # normalize_sequence; restore that property after the affine).
+            # Re-zero absent landmarks; normalize_sequence's zeroing was undone by the affine.
             pts[missing] = 0.0
             x = pts.reshape(x.shape[0], -1)
 
-        # 5. Per-frame mask (Bernoulli zero-out of whole frames).
         if self.augment and self.frame_mask_prob > 0 and x.shape[0] > 0:
             zap = np.random.rand(x.shape[0]) < self.frame_mask_prob
             x[zap] = 0.0
 
-        # 6. Contiguous time-mask spans (SpecAugment-style).
         if self.augment and self.time_mask_max_spans > 0 and x.shape[0] >= 8:
             n_spans = np.random.randint(0, self.time_mask_max_spans + 1)
             for _ in range(n_spans):
@@ -169,10 +153,10 @@ def ctc_collate(batch):
 
     Returns:
       x_padded:        (B, T_max, N_FEATURES) float32
-      y_concat:        (sum(target_lengths),) int64 — flattened targets per CTC docs
+      y_concat:        (sum(target_lengths),) int64, flattened targets per CTC docs
       input_lengths:   (B,)
       target_lengths:  (B,)
-      pad_mask:        (B, T_max) bool — True at padded positions
+      pad_mask:        (B, T_max) bool, True at padded positions
     """
     batch = [b for b in batch if b[2] > 0 and b[3] > 0]
     if not batch:
@@ -184,7 +168,7 @@ def ctc_collate(batch):
     feat = xs[0].shape[-1]
 
     x_padded = torch.zeros(B, T_max, feat, dtype=torch.float32)
-    pad_mask = torch.ones(B, T_max, dtype=torch.bool)  # True = padded
+    pad_mask = torch.ones(B, T_max, dtype=torch.bool)
     for i, (x, t) in enumerate(zip(xs, in_lens)):
         x_padded[i, :t] = x
         pad_mask[i, :t] = False

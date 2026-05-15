@@ -25,12 +25,9 @@ class ASLDataset(Dataset):
         return x, self.y[idx]
 
     def _augment(self, x: torch.Tensor) -> torch.Tensor:
-        # Small Gaussian noise on landmark positions
         x = x + torch.randn_like(x) * 0.01
-        # Random scale jitter ±5%
         scale = 1.0 + (torch.rand(1).item() - 0.5) * 0.1
-        x = x * scale
-        return x
+        return x * scale
 
 
 def load_splits(
@@ -44,7 +41,6 @@ def load_splits(
     X = np.load(processed_dir / "X.npy")
     y = np.load(processed_dir / "y.npy")
 
-    # Drop classes with fewer than 2 samples (can't stratify-split singletons)
     counts = np.bincount(y)
     keep_mask = counts[y] >= 2
     if not keep_mask.all():

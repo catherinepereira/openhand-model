@@ -34,24 +34,21 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def greedy_decode(log_probs: torch.Tensor, input_lengths: torch.Tensor, blank: int) -> list[list[int]]:
-    """CTC greedy collapsing: argmax per frame, then merge repeats and remove blanks.
+    """CTC greedy decode: argmax per frame, merge repeats, remove blanks.
 
-    log_probs: (T, B, V) — same layout as CTCLoss
+    log_probs: (T, B, V), same layout as CTCLoss.
     Returns list of decoded id sequences (one per batch element).
     """
-    # (T, B)
-    preds = log_probs.argmax(dim=-1).transpose(0, 1).cpu().numpy()  # (B, T)
+    preds = log_probs.argmax(dim=-1).transpose(0, 1).cpu().numpy()
     outs = []
     for i, length in enumerate(input_lengths.tolist()):
         seq = preds[i, :length]
-        # Collapse repeats
         collapsed = []
         prev = -1
         for v in seq:
             if v != prev:
                 collapsed.append(int(v))
                 prev = int(v)
-        # Drop blanks
         outs.append([v for v in collapsed if v != blank])
     return outs
 
@@ -104,7 +101,7 @@ def main():
     ap.add_argument("--warmup_steps", type=int, default=500,
                     help="Linear LR warmup over the first N optimizer steps")
     ap.add_argument("--label_smoothing", type=float, default=0.1,
-                    help="KL-to-uniform regulariser weight (anti-blank-collapse)")
+                    help="KL-to-uniform regularizer weight (anti-blank-collapse)")
     args = ap.parse_args()
 
     args.exports.mkdir(parents=True, exist_ok=True)
@@ -130,15 +127,13 @@ def main():
     elif args.subset is not None:
         meta = meta.sample(n=min(args.subset, len(meta)), random_state=42).reset_index(drop=True)
 
-    # Drop sequences whose .npz file doesn't exist (skipped during preprocess
-    # or this run uses a smaller subset than was preprocessed)
     available = {int(p.stem) for p in seq_dir.glob("*.npz")}
     before = len(meta)
     meta = meta[meta["sequence_id"].isin(available)].reset_index(drop=True)
     if len(meta) < before:
         print(f"  Filtered {before - len(meta)} sequences without .npz files")
 
-    # Split by participant — held-out signers, the real evaluation signal
+    # Split by participant so val signers are held out.
     rng = np.random.default_rng(42)
     participants = meta["participant_id"].unique()
     rng.shuffle(participants)
@@ -182,7 +177,7 @@ def main():
     )
     scaler = torch.amp.GradScaler(device=DEVICE, enabled=(DEVICE == "cuda"))
 
-    # LR schedule: linear warmup -> cosine decay. We step it per-optimizer-step.
+    # LR schedule: linear warmup, then cosine decay, applied per optimizer step.
     steps_per_epoch = max(1, len(train_loader))
     total_steps = args.epochs * steps_per_epoch
     def lr_at(step: int) -> float:
@@ -217,21 +212,17 @@ def main():
                 tgt_lens = tgt_lens.to(DEVICE)
                 pad_mask = pad_mask.to(DEVICE)
 
-                # Apply LR for this step (warmup → cosine)
                 for pg in optimizer.param_groups:
                     pg["lr"] = lr_at(global_step)
 
                 optimizer.zero_grad()
                 with torch.amp.autocast(device_type=DEVICE, enabled=(DEVICE == "cuda")):
-                    log_probs = model(x, src_key_padding_mask=pad_mask)  # (T, B, V)
+                    log_probs = model(x, src_key_padding_mask=pad_mask)
                     ctc_loss = criterion(log_probs, y, in_lens, tgt_lens)
-                    # Anti-blank-collapse: KL between predicted distribution and
-                    # uniform — penalises peaky "always blank" outputs at non-pad
-                    # positions. (T, B, V) → mask out pad time-steps.
+                    # KL-to-uniform on non-pad positions to discourage blank collapse.
                     if args.label_smoothing > 0:
-                        # log_probs is (T, B, V); pad_mask is (B, T) → transpose
-                        valid = (~pad_mask).transpose(0, 1).unsqueeze(-1)  # (T, B, 1)
-                        uniform_kl = -(log_probs.mean(dim=-1))             # (T, B)
+                        valid = (~pad_mask).transpose(0, 1).unsqueeze(-1)
+                        uniform_kl = -(log_probs.mean(dim=-1))
                         smoothing = (uniform_kl.unsqueeze(-1) * valid).sum() / valid.sum().clamp_min(1)
                         loss = ctc_loss + args.label_smoothing * smoothing
                     else:
@@ -272,9 +263,7 @@ def main():
                 vl_loss += loss.item() * x.size(0)
                 vl_n += x.size(0)
 
-                # Decode + compare
                 decoded = greedy_decode(log_probs, in_lens, blank=blank_idx)
-                # Re-split y by tgt_lens to recover per-sample refs
                 refs = []
                 offset = 0
                 for L in tgt_lens.tolist():
@@ -301,7 +290,6 @@ def main():
             f"{dt:.0f}s"
         )
 
-        # Sample predictions
         if all_hyps:
             print("  examples:")
             for h, r in list(zip(all_hyps, all_refs))[:3]:

@@ -1,11 +1,8 @@
 """
 ASL sign MLP classifier.
 
-Input:  (batch, 63)  — 21 hand landmarks × (x, y, z), wrist-centered + scaled
-Output: (batch, 26)  — logits over A-Z
-
-Architecture: 3 hidden layers with BatchNorm + Dropout, chosen to be fast enough
-for real-time CPU inference once exported to ONNX (~0.1ms per frame).
+Input:  (batch, 63)  21 hand landmarks * (x, y, z), wrist-centered + scaled.
+Output: (batch, 26)  logits over A-Z.
 """
 
 import torch

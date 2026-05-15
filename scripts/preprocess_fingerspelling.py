@@ -11,9 +11,9 @@ For each sequence in train.csv:
 Output layout:
   data/processed_fingerspelling/
     sequences/<sequence_id>.npz   # one file per sequence (small, ~10-100 KB)
-      x:       float32 (T, N_FEATURES)  — NaN-filled with 0
-      missing: bool   (T, N_LANDMARKS)  — True where landmark was originally NaN
-      target:  int16  (L,)              — character indices
+      x:       float32 (T, N_FEATURES)  NaN-filled with 0
+      missing: bool   (T, N_LANDMARKS)  True where landmark was originally NaN
+      target:  int16  (L,)              character indices
     index.json  # quick lookup: sequence_id -> {target, n_frames}
 
 Usage:
@@ -55,7 +55,6 @@ def main():
     meta = meta[meta["phrase"].str.len() > 0]
     if args.limit:
         meta = meta.sample(n=min(args.limit, len(meta)), random_state=42).reset_index(drop=True)
-    # Sort by file_id so we touch each Parquet shard exactly once
     meta = meta.sort_values("file_id").reset_index(drop=True)
 
     print(f"Processing {len(meta)} sequences from {meta['file_id'].nunique()} shards")
@@ -84,13 +83,9 @@ def main():
         if arr.shape[0] == 0:
             continue
 
-        # Per-landmark missing mask: a landmark counts as missing when all 3
-        # of its (x, y, z) values were NaN.
         per_lm = arr.reshape(arr.shape[0], N_LANDMARKS, 3)
-        missing = np.isnan(per_lm).all(axis=-1)  # (T, N_LANDMARKS)
+        missing = np.isnan(per_lm).all(axis=-1)
 
-        # Fill NaNs with 0 for the saved array (downstream code will use the
-        # explicit `missing` mask, not zero-equality).
         x = np.nan_to_num(arr, nan=0.0).astype(np.float32)
 
         target_ids = np.array(

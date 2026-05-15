@@ -66,7 +66,6 @@ def main():
         else:
             args.checkpoint = Path("exports/best.pt")
 
-    # Load test split deterministically (same seed as train.py)
     X = np.load(args.data / "X.npy")
     y = np.load(args.data / "y.npy")
     from sklearn.model_selection import train_test_split

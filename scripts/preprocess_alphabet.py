@@ -3,7 +3,7 @@ Preprocess the ASL Alphabet image dataset into landmark feature vectors.
 
 For each image:
   1. Run MediaPipe Hands to extract 21 hand landmarks (63 floats)
-  2. Normalise: wrist at origin, scale by 95th-percentile abs value
+  2. Normalize: wrist at origin, scale by 95th-percentile abs value
   3. Save as X.npy / y.npy
 
 Dataset layout expected at --images:
@@ -15,7 +15,7 @@ Dataset layout expected at --images:
     nothing/
     space/
 
-We only keep A-Z (26 classes) and skip del/nothing/space — OpenHand only
+We only keep A-Z (26 classes) and skip del/nothing/space; OpenHand only
 needs letter recognition for the MVP.
 
 Output (data/processed_alphabet/):
@@ -66,12 +66,11 @@ def extract_landmarks(img_path: Path, detector) -> np.ndarray | None:
     if not result.hand_landmarks:
         return None
     lm = result.hand_landmarks[0]
-    vec = np.array([[l.x, l.y, l.z] for l in lm], dtype=np.float32).flatten()  # (63,)
+    vec = np.array([[l.x, l.y, l.z] for l in lm], dtype=np.float32).flatten()
     return vec
 
 
 def normalize(vec: np.ndarray) -> np.ndarray:
-    # vec is (63,) = 21 landmarks × (x, y, z) interleaved
     pts = vec.reshape(21, 3) - vec[:3]
     scale = np.percentile(np.abs(pts), 95)
     if scale > 1e-6:
@@ -111,7 +110,6 @@ def main():
         for letter in LETTERS:
             ckpt_file = ckpt_dir / f"{letter}.npz"
             if ckpt_file.exists():
-                # Resume: reuse previously extracted letter
                 d = np.load(ckpt_file)
                 lx, ly = d["x"], d["y"]
                 lfailed = int(d["failed"])
@@ -140,7 +138,6 @@ def main():
                 lx.append(vec)
                 ly.append(label_idx)
 
-            # Checkpoint this letter
             np.savez(
                 ckpt_file,
                 x=np.stack(lx).astype(np.float32) if lx else np.zeros((0, 63), np.float32),

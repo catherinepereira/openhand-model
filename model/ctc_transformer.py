@@ -1,11 +1,8 @@
 """
 Transformer encoder + CTC head for ASL fingerspelling sequence transcription.
 
-Input:  (B, T, N_FEATURES) float32 — landmark sequences, padded to max T
-        in batch
+Input:  (B, T, N_FEATURES) float32 landmark sequences, padded to max T in batch
 Output: (T, B, V) log-probabilities for CTC, where V = num_chars + 1 (blank)
-
-Layout matches torch.nn.CTCLoss expectations (time-first).
 """
 
 from __future__ import annotations
@@ -27,17 +24,16 @@ class SinusoidalPositionalEncoding(nn.Module):
         div = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float32) * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(pos * div)
         pe[:, 1::2] = torch.cos(pos * div)
-        self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_len, d_model)
+        self.register_buffer("pe", pe.unsqueeze(0))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, T, d_model)
         return x + self.pe[:, : x.size(1)]
 
 
 class CTCTransformer(nn.Module):
     def __init__(
         self,
-        num_classes: int,            # includes the CTC blank as the last index
+        num_classes: int,
         n_features: int = N_FEATURES,
         d_model: int = 256,
         nhead: int = 8,
@@ -49,8 +45,6 @@ class CTCTransformer(nn.Module):
         super().__init__()
         self.num_classes = num_classes
 
-        # Light 1D-conv stem over the feature axis: smooths jittery frames
-        # before attention. (B, N_FEATURES, T) ↔ Conv1d expects (N, C, L).
         self.stem = nn.Sequential(
             nn.Conv1d(n_features, d_model, kernel_size=conv_kernel, padding=conv_kernel // 2),
             nn.BatchNorm1d(d_model),
@@ -75,17 +69,15 @@ class CTCTransformer(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,                # (B, T, N_FEATURES)
-        src_key_padding_mask: torch.Tensor | None = None,  # (B, T) bool, True = PAD
+        x: torch.Tensor,
+        src_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        # Conv stem in (B, C, T)
-        x = x.transpose(1, 2)              # (B, N_FEATURES, T)
-        x = self.stem(x)                   # (B, d_model, T)
-        x = x.transpose(1, 2)              # (B, T, d_model)
+        x = x.transpose(1, 2)
+        x = self.stem(x)
+        x = x.transpose(1, 2)
         x = self.pos(x)
         x = self.encoder(x, src_key_padding_mask=src_key_padding_mask)
-        logits = self.head(x)              # (B, T, V)
-        # CTCLoss wants (T, B, V) log-probs
+        logits = self.head(x)
         return F.log_softmax(logits, dim=-1).transpose(0, 1)
 
 

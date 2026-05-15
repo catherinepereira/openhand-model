@@ -7,20 +7,20 @@ changes; commit the resulting JSON next to the test that consumes it.
 
 Produces ``frontend/src/lib/__tests__/landmark_fixtures.json`` with:
 
-- ``raw_frame``: synthetic per-group landmark inputs (small deterministic
+- raw_frame: synthetic per-group landmark inputs (small deterministic
   numbers, one frame). Same shape the TS RawFrameLandmarks expects.
-- ``packed_features``: the (N_FEATURES,) feature vector Python's
+- packed_features: the (N_FEATURES,) feature vector Python's
   build_frame_features produces from that input.
-- ``packed_missing``: the (N_LANDMARKS,) missing mask Python emits.
-- ``normalized_features``: the result of running a known-shape input
+- packed_missing: the (N_LANDMARKS,) missing mask Python emits.
+- normalized_features: the result of running a known-shape input
   through normalize_sequence.
-- ``normalized_input_features``: the matching pre-normalisation features.
-- ``normalized_input_missing``: the matching pre-normalisation missing mask.
+- normalized_input_features: the matching pre-normalization features.
+- normalized_input_missing: the matching pre-normalization missing mask.
 
 The TS test loads the JSON and asserts:
-  buildFrameFeatures(raw_frame) ≈ {packed_features, packed_missing}
+  buildFrameFeatures(raw_frame) ~= {packed_features, packed_missing}
   normalizeSequence(normalized_input_features, normalized_input_missing)
-      ≈ normalized_features
+      ~= normalized_features
 """
 
 from __future__ import annotations
@@ -93,9 +93,8 @@ def pack_frame_python(raw_frame) -> tuple[np.ndarray, np.ndarray]:
 
 
 def build_normalize_inputs():
-    """A short multi-frame sequence with some intentional missing-data
-    patterns, to exercise the normaliser's wrist-anchor + p95 scale +
-    re-zero behaviour."""
+    """Short multi-frame sequence with intentional missing-data patterns
+    to exercise the normalizer's wrist-anchor + p95 scale + re-zero."""
     T = 8
     rng = np.random.default_rng(42)
     features = rng.uniform(0.0, 1.0, size=(T, N_FEATURES)).astype(np.float32)

@@ -20,8 +20,8 @@ import sys
 import time
 from pathlib import Path
 
-# torch.onnx prints unicode checkmarks; on Windows cp1252 consoles this kills
-# the process before the export finishes saving. Force UTF-8 IO first.
+# torch.onnx prints unicode glyphs that crash on Windows cp1252 consoles
+# mid-export. Force UTF-8 IO before importing torch.
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -50,19 +50,14 @@ def _fuse_conv_bn_in_place(seq: torch.nn.Sequential) -> None:
             skip_next = True
         else:
             new_children.append(child)
-    # Reset the Sequential's children list
     seq._modules.clear()
     for idx, mod in enumerate(new_children):
         seq.add_module(str(idx), mod)
 
 
 class CTCExportWrapper(torch.nn.Module):
-    """Tiny wrapper that gives the exported graph a clean signature.
-
-    The original model takes ``src_key_padding_mask`` as a keyword argument,
-    which onnx.export doesn't handle gracefully. We accept the mask as a
-    positional bool tensor and pass it through.
-    """
+    """Wrapper that exposes the pad mask as a positional bool tensor;
+    onnx.export doesn't handle the original keyword-only signature."""
     def __init__(self, inner):
         super().__init__()
         self.inner = inner
@@ -96,16 +91,13 @@ def main():
     inner.load_state_dict(torch.load(args.checkpoint, map_location="cpu", weights_only=True))
     inner.eval()
 
-    # Fold each BatchNorm1d into the preceding Conv1d. The ONNX dynamo exporter
-    # currently can't convert BatchNorm in eval/no-training mode; fusing them
-    # eliminates the BN ops entirely while preserving model semantics exactly.
+    # Fold BatchNorm1d into the preceding Conv1d; the dynamo exporter can't
+    # currently convert eval-mode BatchNorm.
     _fuse_conv_bn_in_place(inner.stem)
 
     model = CTCExportWrapper(inner).eval()
 
-    # Dummy input: batch=2, T=64 frames. batch must be >1 for dynamo to treat
-    # it as dynamic (a dummy of batch=1 becomes a constant). T capped to
-    # max_len-1 of the positional encoder (4096).
+    # batch=2 because dynamo treats a batch-1 dummy as a static constant.
     dummy_x = torch.zeros(2, 64, N_FEATURES, dtype=torch.float32)
     dummy_mask = torch.zeros(2, 64, dtype=torch.bool)
 
@@ -125,11 +117,9 @@ def main():
     )
     onnx_program.save(str(args.out))
 
-    # Verify
     import onnxruntime as ort
     sess = ort.InferenceSession(str(args.out), providers=["CPUExecutionProvider"])
 
-    # Run on a "realistic" 128-frame sequence
     T = 128
     x = np.random.randn(1, T, N_FEATURES).astype(np.float32)
     pad = np.zeros((1, T), dtype=bool)
@@ -137,7 +127,6 @@ def main():
     print(f"Output shape: {out.shape}  (expected: ({T}, 1, {num_classes}))")
     assert out.shape == (T, 1, num_classes)
 
-    # Latency check
     runs = 50
     t0 = time.perf_counter()
     for _ in range(runs):
