@@ -64,8 +64,9 @@ python scripts/evaluate.py
 
 # 6. Build the Learn-screen reference from the same data
 python scripts/build_reference_landmarks.py
-# exports/reference_landmarks.json: per-letter mean landmark vector
-# used by the Learn screen's 3D reference preview.
+# exports/reference_landmarks.json: per-letter medoid landmark vector
+# (the real training sample closest to the class centroid) used by
+# the Learn screen's 3D reference preview.
 ```
 
 To deploy back to OpenHand:
