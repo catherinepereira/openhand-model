@@ -59,7 +59,7 @@ def main():
         zf.unlink()
 
     print(f"\nDone. Raw data at: {RAW_DIR}")
-    print("Next step: python scripts/preprocess.py")
+    print("Next step: python scripts/preprocess_fingerspelling.py")
 
 
 if __name__ == "__main__":

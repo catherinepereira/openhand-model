@@ -12,15 +12,9 @@ Produces ``frontend/src/lib/__tests__/landmark_fixtures.json`` with:
 - packed_features: the (N_FEATURES,) feature vector Python's
   build_frame_features produces from that input.
 - packed_missing: the (N_LANDMARKS,) missing mask Python emits.
-- normalized_features: the result of running a known-shape input
-  through normalize_sequence.
-- normalized_input_features: the matching pre-normalization features.
-- normalized_input_missing: the matching pre-normalization missing mask.
 
-The TS test loads the JSON and asserts:
-  buildFrameFeatures(raw_frame) ~= {packed_features, packed_missing}
-  normalizeSequence(normalized_input_features, normalized_input_missing)
-      ~= normalized_features
+The TS test loads the JSON and asserts
+buildFrameFeatures(raw_frame) ~= {packed_features, packed_missing}.
 """
 
 from __future__ import annotations
@@ -34,7 +28,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from model.landmarks import (  # noqa: E402
     LIPS_IDX, LEFT_EYE_IDX, RIGHT_EYE_IDX, NOSE_IDX, POSE_IDX, HAND_IDX,
-    N_LANDMARKS, N_FEATURES, normalize_sequence,
+    N_LANDMARKS, N_FEATURES,
 )
 
 # MediaPipe's max indices for each source. We need to provide a
@@ -92,26 +86,6 @@ def pack_frame_python(raw_frame) -> tuple[np.ndarray, np.ndarray]:
     return features, missing
 
 
-def build_normalize_inputs():
-    """Short multi-frame sequence with intentional missing-data patterns
-    to exercise the normalizer's wrist-anchor + p95 scale + re-zero."""
-    T = 8
-    rng = np.random.default_rng(42)
-    features = rng.uniform(0.0, 1.0, size=(T, N_FEATURES)).astype(np.float32)
-    missing = np.zeros((T, N_LANDMARKS), dtype=bool)
-    # Mark a few landmarks as missing in some frames to make sure both
-    # pipelines treat them the same.
-    missing[0, 5] = True
-    missing[2, :40] = True       # all lips missing in frame 2
-    missing[5, -21:] = True      # right hand missing in frame 5
-    # Make sure missing landmark features are zero per the contract.
-    for t in range(T):
-        for lm in range(N_LANDMARKS):
-            if missing[t, lm]:
-                features[t, lm * 3:lm * 3 + 3] = 0.0
-    return features, missing
-
-
 def main():
     out = Path(__file__).parent.parent.parent / "openhand" / "frontend" / "src" / "lib" / "__tests__" / "landmark_fixtures.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -119,21 +93,14 @@ def main():
     raw_frame = build_raw_frame()
     packed_features, packed_missing = pack_frame_python(raw_frame)
 
-    in_features, in_missing = build_normalize_inputs()
-    norm_features = normalize_sequence(in_features.copy(), in_missing)
-
     fixtures = {
         "metadata": {
             "n_landmarks": int(N_LANDMARKS),
             "n_features": int(N_FEATURES),
-            "n_frames_for_normalize": int(in_features.shape[0]),
         },
         "raw_frame": raw_frame,
         "packed_features": packed_features.tolist(),
         "packed_missing": packed_missing.tolist(),
-        "normalized_input_features": in_features.flatten().tolist(),
-        "normalized_input_missing": in_missing.flatten().tolist(),
-        "normalized_features": norm_features.flatten().tolist(),
     }
 
     with open(out, "w") as f:
@@ -141,7 +108,6 @@ def main():
     print(f"Wrote {out}")
     print(f"  N_LANDMARKS={N_LANDMARKS}, N_FEATURES={N_FEATURES}")
     print(f"  packed_features len={len(fixtures['packed_features'])}")
-    print(f"  normalized_features len={len(fixtures['normalized_features'])}")
 
 
 if __name__ == "__main__":

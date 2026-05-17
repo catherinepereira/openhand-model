@@ -13,10 +13,12 @@ __pycache__/
 
 # Datasets: too large for git; downloaded via scripts (Kaggle / direct URL)
 data/raw/
+data/raw_signs/
 data/asl-alphabet/
 data/processed/
 data/processed_alphabet/
 data/processed_test/
+data/processed_signs/
 data/processed_fingerspelling/
 data/hand_landmarker.task
 
