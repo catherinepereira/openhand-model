@@ -18,12 +18,14 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from model.mlp import build_model
 
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", default="exports/best.pt", type=Path)
-    parser.add_argument("--meta", default="exports/model_meta.json", type=Path)
-    parser.add_argument("--out", default="exports/asl_classifier.onnx", type=Path)
+    parser.add_argument("--checkpoint", default=MODEL_ROOT / "exports" / "best.pt", type=Path)
+    parser.add_argument("--meta", default=MODEL_ROOT / "exports" / "model_meta.json", type=Path)
+    parser.add_argument("--out", default=MODEL_ROOT / "exports" / "asl_classifier.onnx", type=Path)
     parser.add_argument("--opset", default=17, type=int)
     args = parser.parse_args()
 

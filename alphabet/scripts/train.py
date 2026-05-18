@@ -79,10 +79,13 @@ def plot_curves(history: dict, out_path: Path):
     plt.close(fig)
 
 
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data/processed", type=Path)
-    parser.add_argument("--exports", default="exports", type=Path)
+    parser.add_argument("--data", default=MODEL_ROOT / "data" / "processed_alphabet", type=Path)
+    parser.add_argument("--exports", default=MODEL_ROOT / "exports", type=Path)
     parser.add_argument("--epochs", default=60, type=int)
     parser.add_argument("--batch", default=256, type=int)
     parser.add_argument("--lr", default=1e-3, type=float)

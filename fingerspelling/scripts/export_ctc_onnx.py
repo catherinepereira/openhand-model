@@ -33,6 +33,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from model.ctc_transformer import build_ctc_model
 from model.landmarks import N_FEATURES
 
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+
 
 def _fuse_conv_bn_in_place(seq: torch.nn.Sequential) -> None:
     """Replace adjacent Conv1d->BatchNorm1d pairs in a Sequential with a
@@ -68,9 +70,9 @@ class CTCExportWrapper(torch.nn.Module):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--checkpoint", default="exports/ctc/best.pt", type=Path)
-    ap.add_argument("--meta",       default="exports/ctc/model_meta.json", type=Path)
-    ap.add_argument("--out",        default="exports/ctc/asl_ctc.onnx", type=Path)
+    ap.add_argument("--checkpoint", default=MODEL_ROOT / "exports" / "best.pt", type=Path)
+    ap.add_argument("--meta",       default=MODEL_ROOT / "exports" / "model_meta.json", type=Path)
+    ap.add_argument("--out",        default=MODEL_ROOT / "exports" / "asl_ctc.onnx", type=Path)
     ap.add_argument("--opset",      default=17, type=int)
     args = ap.parse_args()
 

@@ -31,6 +31,7 @@ from model.fingerspelling_dataset import (  # noqa: E402
 )
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL_ROOT = Path(__file__).resolve().parent.parent
 
 
 def greedy_decode(log_probs: torch.Tensor, input_lengths: torch.Tensor, blank: int) -> list[list[int]]:
@@ -78,11 +79,11 @@ def char_error_rate(hyps: list[str], refs: list[str]) -> float:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--raw",     default="data/raw",  type=Path,
+    ap.add_argument("--raw",     default=MODEL_ROOT / "data" / "raw",  type=Path,
                     help="Original Kaggle dump (for train.csv and vocab)")
-    ap.add_argument("--processed", default="data/processed_fingerspelling", type=Path,
+    ap.add_argument("--processed", default=MODEL_ROOT / "data" / "processed_fingerspelling", type=Path,
                     help="Pre-extracted .npz dir from preprocess_fingerspelling.py")
-    ap.add_argument("--exports", default="exports/ctc", type=Path)
+    ap.add_argument("--exports", default=MODEL_ROOT / "exports", type=Path)
     ap.add_argument("--epochs",  default=30, type=int)
     ap.add_argument("--batch",   default=16, type=int)
     ap.add_argument("--lr",      default=1e-3, type=float)

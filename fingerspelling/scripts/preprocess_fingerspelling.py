@@ -35,11 +35,13 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from model.landmarks import SELECTED_COLS, N_LANDMARKS  # noqa: E402
 
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--raw", default="data/raw", type=Path)
-    ap.add_argument("--out", default="data/processed_fingerspelling", type=Path)
+    ap.add_argument("--raw", default=MODEL_ROOT / "data" / "raw", type=Path)
+    ap.add_argument("--out", default=MODEL_ROOT / "data" / "processed_fingerspelling", type=Path)
     ap.add_argument("--limit", type=int, default=None,
                     help="If set, process at most this many sequences (with same "
                          "random seed used by --subset in train_ctc.py)")

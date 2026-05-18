@@ -2,9 +2,8 @@
 PyTorch Dataset wrapping the preprocessed .npy files.
 """
 
-from pathlib import Path
-
 import math
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -27,12 +26,11 @@ class ASLDataset(Dataset):
         return x, self.y[idx]
 
     def _augment(self, x: torch.Tensor) -> torch.Tensor:
+        # Landmarks are stored in raw camera frame, so the MLP is rotation-sensitive
+        # at inference time. Heavier z (in-plane) jitter than x/y reflects how users
+        # actually tilt their wrist.
         pts = x.view(21, 3)
-        # In-plane rotation (around z) is the dominant real-world variation:
-        # the user tilts their wrist toward a shoulder. ±40° covers comfortable
-        # tilt without going past handshapes that depend on orientation.
         theta_z = (torch.rand(1).item() - 0.5) * 2 * math.radians(40)
-        # Small out-of-plane tilt around x and y for palm-not-perpendicular-to-camera.
         theta_x = (torch.rand(1).item() - 0.5) * 2 * math.radians(10)
         theta_y = (torch.rand(1).item() - 0.5) * 2 * math.radians(10)
         R = _rotation_matrix(theta_x, theta_y, theta_z)

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "fingerspelling"))
 from model.landmarks import (  # noqa: E402
     LIPS_IDX, LEFT_EYE_IDX, RIGHT_EYE_IDX, NOSE_IDX, POSE_IDX, HAND_IDX,
     N_LANDMARKS, N_FEATURES,

@@ -21,8 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
-DEFAULT_DATA = Path("data/processed_alphabet")
-DEFAULT_OUT = Path("exports/reference_landmarks.json")
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATA = MODEL_ROOT / "data" / "processed_alphabet"
+DEFAULT_OUT = MODEL_ROOT / "exports" / "reference_landmarks.json"
 
 
 def main() -> None:

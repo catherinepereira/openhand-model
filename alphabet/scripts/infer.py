@@ -19,6 +19,9 @@ from pathlib import Path
 import numpy as np
 
 
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+
+
 def softmax(x: np.ndarray) -> np.ndarray:
     e = np.exp(x - x.max())
     return e / e.sum()
@@ -26,8 +29,8 @@ def softmax(x: np.ndarray) -> np.ndarray:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--onnx", default="exports/asl_classifier.onnx", type=Path)
-    parser.add_argument("--meta", default="exports/model_meta.json", type=Path)
+    parser.add_argument("--onnx", default=MODEL_ROOT / "exports" / "asl_classifier.onnx", type=Path)
+    parser.add_argument("--meta", default=MODEL_ROOT / "exports" / "model_meta.json", type=Path)
     parser.add_argument("--landmarks", default=None, type=Path,
                         help="JSON file containing a flat array of 63 floats")
     parser.add_argument("--topk", default=3, type=int)

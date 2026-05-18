@@ -36,6 +36,8 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from model.signs_landmarks import N_LANDMARKS, ROW_ID_TO_LM_IDX  # noqa: E402
 
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+
 
 def pivot_clip(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """Convert a clip's long-format rows into (T, 127, 3) + (T, 127) missing.
@@ -76,8 +78,8 @@ def pivot_clip(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--raw", type=Path, default=Path("data/raw_signs"))
-    ap.add_argument("--out", type=Path, default=Path("data/processed_signs"))
+    ap.add_argument("--raw", type=Path, default=MODEL_ROOT / "data" / "raw_signs")
+    ap.add_argument("--out", type=Path, default=MODEL_ROOT / "data" / "processed_signs")
     ap.add_argument("--limit", type=int, default=None,
                     help="If set, process at most this many clips (debug)")
     args = ap.parse_args()

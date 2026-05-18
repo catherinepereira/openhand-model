@@ -42,7 +42,8 @@ from tqdm import tqdm
 LETTERS = [chr(ord("A") + i) for i in range(26)]
 LABEL_TO_IDX = {l: i for i, l in enumerate(LETTERS)}
 
-TASK_MODEL = Path(__file__).parent.parent / "data" / "hand_landmarker.task"
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+TASK_MODEL = MODEL_ROOT.parent / "shared" / "hand_landmarker.task"
 
 
 def make_detector() -> vision.HandLandmarker:
@@ -82,10 +83,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--images",
-        default="data/asl-alphabet/asl_alphabet_train/asl_alphabet_train",
+        default=MODEL_ROOT / "data" / "asl-alphabet" / "asl_alphabet_train" / "asl_alphabet_train",
         type=Path,
     )
-    parser.add_argument("--out", default="data/processed_alphabet", type=Path)
+    parser.add_argument("--out", default=MODEL_ROOT / "data" / "processed_alphabet", type=Path)
     args = parser.parse_args()
 
     if not args.images.exists():

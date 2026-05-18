@@ -48,14 +48,15 @@ from model.signs_dataset import (  # noqa: E402
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL_ROOT = Path(__file__).resolve().parent.parent
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--processed", default="data/processed_signs", type=Path)
-    ap.add_argument("--exports", default="exports/signs", type=Path)
-    ap.add_argument("--checkpoint", default="exports/signs/best.pt", type=Path)
-    ap.add_argument("--meta", default="exports/signs/model_meta.json", type=Path)
+    ap.add_argument("--processed", default=MODEL_ROOT / "data" / "processed_signs", type=Path)
+    ap.add_argument("--exports", default=MODEL_ROOT / "exports", type=Path)
+    ap.add_argument("--checkpoint", default=MODEL_ROOT / "exports" / "best.pt", type=Path)
+    ap.add_argument("--meta", default=MODEL_ROOT / "exports" / "model_meta.json", type=Path)
     ap.add_argument("--batch", default=64, type=int)
     ap.add_argument("--workers", default=2, type=int)
     ap.add_argument("--max_frames", default=80, type=int)

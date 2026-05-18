@@ -11,21 +11,19 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Datasets: too large for git; downloaded via scripts (Kaggle / direct URL)
-data/raw/
-data/raw_signs/
-data/asl-alphabet/
-data/processed/
-data/processed_alphabet/
-data/processed_test/
-data/processed_signs/
-data/processed_fingerspelling/
-data/hand_landmarker.task
+# Datasets: too large for git; downloaded via scripts (Kaggle / direct URL).
+# Each model keeps its own data/ under its subdir.
+alphabet/data/
+fingerspelling/data/
+signs/data/
+shared/hand_landmarker.task
 
 # Training outputs: nothing under exports/ is checked in. Users train
-# locally (see README) and copy artifacts into openhand/backend/models/
+# locally (see READMEs) and copy artifacts into openhand/backend/models/
 # artifacts/ as documented there.
-exports/
+alphabet/exports/
+fingerspelling/exports/
+signs/exports/
 
 # Editor / OS / agent state
 .vscode/

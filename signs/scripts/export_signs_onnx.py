@@ -32,6 +32,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from model.sign_classifier import build_sign_classifier  # noqa: E402
 from model.signs_landmarks import N_FEATURES  # noqa: E402
 
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+
 
 def _fuse_conv_bn(seq: torch.nn.Sequential) -> None:
     """Fold each Conv1d -> BatchNorm1d pair into a single Conv1d.
@@ -71,9 +73,9 @@ class ExportWrapper(torch.nn.Module):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--checkpoint", default="exports/signs/best.pt", type=Path)
-    ap.add_argument("--meta", default="exports/signs/model_meta.json", type=Path)
-    ap.add_argument("--out", default="exports/signs/sign_classifier.onnx", type=Path)
+    ap.add_argument("--checkpoint", default=MODEL_ROOT / "exports" / "best.pt", type=Path)
+    ap.add_argument("--meta", default=MODEL_ROOT / "exports" / "model_meta.json", type=Path)
+    ap.add_argument("--out", default=MODEL_ROOT / "exports" / "sign_classifier.onnx", type=Path)
     args = ap.parse_args()
 
     if not args.checkpoint.exists():

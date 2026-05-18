@@ -1,5 +1,5 @@
 """
-Fetch the MediaPipe Hand Landmarker .task file into data/.
+Fetch the MediaPipe Hand Landmarker .task file into shared/.
 
 Run once after cloning the repo, before preprocess_alphabet.py. Idempotent:
 re-running with the file already present is a no-op.
@@ -15,7 +15,7 @@ URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
     "hand_landmarker/float16/1/hand_landmarker.task"
 )
-DEST = Path(__file__).resolve().parent.parent / "data" / "hand_landmarker.task"
+DEST = Path(__file__).resolve().parent / "hand_landmarker.task"
 
 
 def main() -> None:

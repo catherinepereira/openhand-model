@@ -20,6 +20,8 @@ from sklearn.metrics import classification_report, confusion_matrix
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+MODEL_ROOT = Path(__file__).resolve().parent.parent
+
 
 def run_pytorch(checkpoint: Path, meta_path: Path, X_test: np.ndarray, y_test: np.ndarray):
     import torch
@@ -53,18 +55,17 @@ def run_onnx(onnx_path: Path, meta_path: Path, X_test: np.ndarray, y_test: np.nd
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data/processed", type=Path)
-    parser.add_argument("--meta", default="exports/model_meta.json", type=Path)
+    parser.add_argument("--data", default=MODEL_ROOT / "data" / "processed_alphabet", type=Path)
+    parser.add_argument("--meta", default=MODEL_ROOT / "exports" / "model_meta.json", type=Path)
     parser.add_argument("--checkpoint", default=None, type=Path)
     parser.add_argument("--onnx", default=None, type=Path)
     args = parser.parse_args()
 
     if args.checkpoint is None and args.onnx is None:
-        # Default to ONNX if it exists, otherwise PyTorch
-        if (Path("exports/asl_classifier.onnx")).exists():
-            args.onnx = Path("exports/asl_classifier.onnx")
+        if (MODEL_ROOT / "exports" / "asl_classifier.onnx").exists():
+            args.onnx = MODEL_ROOT / "exports" / "asl_classifier.onnx"
         else:
-            args.checkpoint = Path("exports/best.pt")
+            args.checkpoint = MODEL_ROOT / "exports" / "best.pt"
 
     X = np.load(args.data / "X.npy")
     y = np.load(args.data / "y.npy")
