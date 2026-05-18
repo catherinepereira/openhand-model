@@ -4,6 +4,8 @@ PyTorch Dataset wrapping the preprocessed .npy files.
 
 from pathlib import Path
 
+import math
+
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -25,9 +27,30 @@ class ASLDataset(Dataset):
         return x, self.y[idx]
 
     def _augment(self, x: torch.Tensor) -> torch.Tensor:
+        pts = x.view(21, 3)
+        # In-plane rotation (around z) is the dominant real-world variation:
+        # the user tilts their wrist toward a shoulder. ±40° covers comfortable
+        # tilt without going past handshapes that depend on orientation.
+        theta_z = (torch.rand(1).item() - 0.5) * 2 * math.radians(40)
+        # Small out-of-plane tilt around x and y for palm-not-perpendicular-to-camera.
+        theta_x = (torch.rand(1).item() - 0.5) * 2 * math.radians(10)
+        theta_y = (torch.rand(1).item() - 0.5) * 2 * math.radians(10)
+        R = _rotation_matrix(theta_x, theta_y, theta_z)
+        pts = pts @ R.T
+        x = pts.reshape(63)
         x = x + torch.randn_like(x) * 0.01
         scale = 1.0 + (torch.rand(1).item() - 0.5) * 0.1
         return x * scale
+
+
+def _rotation_matrix(rx: float, ry: float, rz: float) -> torch.Tensor:
+    cx, sx = math.cos(rx), math.sin(rx)
+    cy, sy = math.cos(ry), math.sin(ry)
+    cz, sz = math.cos(rz), math.sin(rz)
+    Rx = torch.tensor([[1, 0, 0], [0, cx, -sx], [0, sx, cx]], dtype=torch.float32)
+    Ry = torch.tensor([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], dtype=torch.float32)
+    Rz = torch.tensor([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], dtype=torch.float32)
+    return Rz @ Ry @ Rx
 
 
 def load_splits(
