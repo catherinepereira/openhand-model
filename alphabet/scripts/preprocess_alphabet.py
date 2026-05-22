@@ -6,17 +6,17 @@ For each image:
   2. Normalize: wrist at origin, scale by 95th-percentile abs value
   3. Save as X.npy / y.npy
 
-Dataset layout expected at --images:
-  asl_alphabet_train/
-    A/ *.jpg
-    B/ *.jpg
+Expects the debashishsau ASL_Alphabet_Dataset layout:
+  ASL_Alphabet_Dataset/asl_alphabet_train/
+    A/ *.jpg *.jpeg     # mix of original + multi-signer + synthetic rotated
+    B/ ...
     ...
-    del/  (DELETE)
-    nothing/
-    space/
+    del/                # ignored
+    nothing/            # ignored
+    space/              # ignored
 
-We only keep A-Z (26 classes) and skip del/nothing/space; OpenHand only
-needs letter recognition for the MVP.
+We only keep A-Z (26 classes). OpenHand only needs letter recognition for
+the MVP.
 
 Output (data/processed_alphabet/):
   X.npy           float32 (N, 63)
@@ -24,8 +24,7 @@ Output (data/processed_alphabet/):
   label_map.json  {"0": "A", "1": "B", ...}
 
 Usage:
-  python scripts/preprocess_alphabet.py
-  python scripts/preprocess_alphabet.py --images data/asl-alphabet/asl_alphabet_train/asl_alphabet_train
+  python alphabet/scripts/preprocess_alphabet.py
 """
 
 import argparse
@@ -83,22 +82,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--images",
-        default=MODEL_ROOT / "data" / "asl-alphabet" / "asl_alphabet_train" / "asl_alphabet_train",
+        default=MODEL_ROOT / "data" / "ASL_Alphabet_Dataset" / "asl_alphabet_train",
         type=Path,
     )
     parser.add_argument("--out", default=MODEL_ROOT / "data" / "processed_alphabet", type=Path)
     args = parser.parse_args()
 
     if not args.images.exists():
-        # Try one level up (zip may extract differently)
-        alt = args.images.parent.parent / "asl_alphabet_train"
-        if alt.exists():
-            args.images = alt
-        else:
-            raise FileNotFoundError(
-                f"Image directory not found: {args.images}\n"
-                "Run: python scripts/preprocess_alphabet.py --images <path to asl_alphabet_train folder>"
-            )
+        raise FileNotFoundError(
+            f"Image directory not found: {args.images}\n"
+            "Run: python alphabet/scripts/preprocess_alphabet.py --images <path to asl_alphabet_train folder>"
+        )
 
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -125,7 +119,7 @@ def main():
                 print(f"[{letter}] Warning: folder not found: {folder}")
                 continue
 
-            images = list(folder.glob("*.jpg")) + list(folder.glob("*.png"))
+            images = list(folder.glob("*.jpg")) + list(folder.glob("*.jpeg")) + list(folder.glob("*.png"))
             label_idx = LABEL_TO_IDX[letter]
 
             lx, ly = [], []

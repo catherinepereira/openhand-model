@@ -1,8 +1,9 @@
 # Alphabet MLP
 
-Per-frame A-Z classification on the Kaggle ASL Alphabet dataset. This is
-what powers OpenHand's per-frame letter detection. 26 classes (A-Z),
-single hand, ~62K params.
+Per-frame A-Z classification, powering OpenHand's per-frame letter
+detection. 26 classes (A-Z), single hand, ~62K params. Trained on the
+[debashishsau ASL Alphabet dataset](https://www.kaggle.com/datasets/debashishsau/aslamerican-sign-language-aplhabet-dataset)
+(multiple signers + synthetic rotated copies, ~190K images).
 
 ## Quick start
 
@@ -25,8 +26,9 @@ python alphabet/scripts/download_alphabet_data.py
 
 # 2. Run MediaPipe on every image and save 63-float landmark vectors
 python alphabet/scripts/preprocess_alphabet.py
-# ~30 min on CPU at ~50 images/sec. Writes alphabet/data/processed_alphabet/X.npy
-# and y.npy. Per-letter checkpoints in _per_letter/ make this resumable.
+# ~1 hour on CPU at ~50 images/sec for the ~190K-image dataset.
+# Writes alphabet/data/processed_alphabet/X.npy and y.npy. Per-letter
+# checkpoints in _per_letter/ make this resumable.
 
 # 3. Train
 python alphabet/scripts/train.py --epochs 60 --batch 512
@@ -35,7 +37,7 @@ python alphabet/scripts/train.py --epochs 60 --batch 512
 
 # 4. Evaluate
 python alphabet/scripts/evaluate.py
-# Per-letter accuracy + confusion matrix on the held-out 5%
+# Per-letter accuracy + confusion matrix on the held-out test split
 
 # 5. Export to ONNX
 python alphabet/scripts/export_onnx.py
@@ -65,12 +67,11 @@ copy alphabet\exports\reference_landmarks.json  ..\openhand\backend\models\artif
 | Output | 26 logits |
 | Loss | CrossEntropy with `label_smoothing=0.05` |
 | Optimizer | AdamW, lr=1e-3, weight_decay=1e-4, cosine schedule |
-| Augmentation | 3D rotation (±40° in-plane, ±10° out-of-plane), Gaussian noise σ=0.01, scale jitter ±5% |
+| Augmentation | Gaussian noise σ=0.01, scale jitter ±5% |
 | Params | 62,267 |
 | CPU latency | 0.019 ms per frame (onnxruntime) |
 
-The ASL Alphabet dataset is one signer in one room with consistent
-lighting, so held-out test accuracy is inflated; real-world accuracy on
-unseen hands is lower. Rotation augmentation in [model/dataset.py](model/dataset.py)
-covers wrist tilt and palm angle so the deployed model handles P, G, H
-at less-than-ideal angles.
+Rotation robustness comes from the dataset itself, not from in-loop
+augmentation: the debashishsau variant bundles synthetic rotated copies
+of each image so MediaPipe sees the hand at varied tilts during
+preprocessing and produces matching landmark vectors.
