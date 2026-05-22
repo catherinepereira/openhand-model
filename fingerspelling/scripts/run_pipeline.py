@@ -2,7 +2,7 @@
 End-to-end CTC fingerspelling pipeline:
   preprocess -> train -> export ONNX.
 
-Assumes the dataset is already downloaded (run download_data.py once).
+Assumes the dataset is already downloaded (run download_fingerspelling_data.py once).
 Each step is also runnable on its own; this script just chains them so the
 common case is a single command.
 
