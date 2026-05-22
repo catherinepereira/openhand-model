@@ -2,7 +2,6 @@
 PyTorch Dataset wrapping the preprocessed .npy files.
 """
 
-import math
 from pathlib import Path
 
 import numpy as np
@@ -26,29 +25,9 @@ class ASLDataset(Dataset):
         return x, self.y[idx]
 
     def _augment(self, x: torch.Tensor) -> torch.Tensor:
-        # Landmarks are stored in raw camera frame, so the MLP is rotation-sensitive
-        # at inference time. Heavier z (in-plane) jitter than x/y reflects how users
-        # actually tilt their wrist.
-        pts = x.view(21, 3)
-        theta_z = (torch.rand(1).item() - 0.5) * 2 * math.radians(40)
-        theta_x = (torch.rand(1).item() - 0.5) * 2 * math.radians(10)
-        theta_y = (torch.rand(1).item() - 0.5) * 2 * math.radians(10)
-        R = _rotation_matrix(theta_x, theta_y, theta_z)
-        pts = pts @ R.T
-        x = pts.reshape(63)
         x = x + torch.randn_like(x) * 0.01
         scale = 1.0 + (torch.rand(1).item() - 0.5) * 0.1
         return x * scale
-
-
-def _rotation_matrix(rx: float, ry: float, rz: float) -> torch.Tensor:
-    cx, sx = math.cos(rx), math.sin(rx)
-    cy, sy = math.cos(ry), math.sin(ry)
-    cz, sz = math.cos(rz), math.sin(rz)
-    Rx = torch.tensor([[1, 0, 0], [0, cx, -sx], [0, sx, cx]], dtype=torch.float32)
-    Ry = torch.tensor([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], dtype=torch.float32)
-    Rz = torch.tensor([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], dtype=torch.float32)
-    return Rz @ Ry @ Rx
 
 
 def load_splits(
