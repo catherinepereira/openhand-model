@@ -4,7 +4,7 @@ Download the ASL Fingerspelling dataset from Kaggle.
 Prerequisites:
   1. pip install kaggle
   2. Place kaggle.json at ~/.kaggle/kaggle.json  (from kaggle.com -> Account -> API)
-  3. Run: python scripts/download_data.py
+  3. Run: python fingerspelling/scripts/download_fingerspelling_data.py
 
 Downloads to data/raw/ (~170 GB extracted). If you only want a quick smoke-test,
 pass --sample to download just the small supplemental split (~2 GB).
