@@ -5,6 +5,11 @@ Loads pre-extracted .npz files produced by scripts/preprocess_fingerspelling.py.
 Each file has the per-frame landmark tensor, an explicit per-landmark missing
 mask, and the target sequence as int indices.
 
+Augmentations are based on the 1st-place Kaggle solution
+(github.com/ChristofHenkel/kaggle-asl-fingerspelling-1st-place-solution):
+time resample, affine (scale/shear/translate/rotate), time + spatial masking,
+horizontal flip with left/right swap, finger dropout, and group dropout.
+
 ctc_collate pads variable-length sequences within a batch and returns the
 shapes CTCLoss expects.
 """
@@ -29,6 +34,20 @@ _LANDMARK_GROUPS: dict[str, tuple[int, int]] = {
     "right_hand": (GROUP_OFFSETS["right_hand"] // 3, N_LANDMARKS),
 }
 
+_LEFT_HAND_LM_START  = GROUP_OFFSETS["left_hand"]  // 3
+_RIGHT_HAND_LM_START = GROUP_OFFSETS["right_hand"] // 3
+_HAND_LEN = 21
+
+# MediaPipe hand: 21 landmarks per hand. Indices 1..4 are thumb, 5..8 index,
+# 9..12 middle, 13..16 ring, 17..20 pinky. 0 is wrist.
+_FINGERS: list[list[int]] = [
+    [1, 2, 3, 4],
+    [5, 6, 7, 8],
+    [9, 10, 11, 12],
+    [13, 14, 15, 16],
+    [17, 18, 19, 20],
+]
+
 
 class FingerspellingDataset(Dataset):
     def __init__(
@@ -37,63 +56,174 @@ class FingerspellingDataset(Dataset):
         sequences: pd.DataFrame,
         max_frames: int | None = 384,
         augment: bool = False,
-        time_crop_min: float = 0.70,
-        time_stretch_range: tuple[float, float] = (0.85, 1.15),
-        time_mask_max_spans: int = 2,
-        time_mask_max_len_frac: float = 0.10,
-        frame_mask_prob: float = 0.05,
-        group_dropout_prob: float = 0.08,
-        affine_scale_range: tuple[float, float] = (0.9, 1.1),
-        affine_translate: float = 0.05,
+        # 1st-place magnitudes
+        time_resample_range: tuple[float, float] = (0.5, 1.5),
+        time_resample_prob: float = 0.8,
+        affine_prob: float = 0.75,
+        affine_scale_range: tuple[float, float] = (0.8, 1.2),
+        affine_shear_max: float = 0.15,
+        affine_translate_max: float = 0.10,
+        affine_rotation_deg_max: float = 30.0,
+        time_mask_prob: float = 0.5,
+        time_mask_frac_range: tuple[float, float] = (0.20, 0.40),
+        spatial_mask_prob: float = 0.5,
+        spatial_mask_frac_range: tuple[float, float] = (0.05, 0.10),
+        hflip_prob: float = 0.5,
+        finger_dropout_prob: float = 0.10,
+        # Held over from the previous pipeline: occasionally drop entire
+        # landmark groups (face/pose/hand) so the model sees real-world
+        # cases where MediaPipe misses a whole group.
+        group_dropout_prob: float = 0.05,
     ):
         self.seq_dir = Path(processed_dir) / "sequences"
         self.sequences = sequences.reset_index(drop=True)
         self.max_frames = max_frames
         self.augment = augment
-        self.time_crop_min = time_crop_min
-        self.time_stretch_range = time_stretch_range
-        self.time_mask_max_spans = time_mask_max_spans
-        self.time_mask_max_len_frac = time_mask_max_len_frac
-        self.frame_mask_prob = frame_mask_prob
-        self.group_dropout_prob = group_dropout_prob
+
+        self.time_resample_range = time_resample_range
+        self.time_resample_prob = time_resample_prob
+        self.affine_prob = affine_prob
         self.affine_scale_range = affine_scale_range
-        self.affine_translate = affine_translate
+        self.affine_shear_max = affine_shear_max
+        self.affine_translate_max = affine_translate_max
+        self.affine_rotation_deg_max = affine_rotation_deg_max
+        self.time_mask_prob = time_mask_prob
+        self.time_mask_frac_range = time_mask_frac_range
+        self.spatial_mask_prob = spatial_mask_prob
+        self.spatial_mask_frac_range = spatial_mask_frac_range
+        self.hflip_prob = hflip_prob
+        self.finger_dropout_prob = finger_dropout_prob
+        self.group_dropout_prob = group_dropout_prob
 
     def __len__(self) -> int:
         return len(self.sequences)
 
-    def _apply_augmentations(
-        self, x: np.ndarray, missing: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    # ---- per-sample augmentations ---------------------------------------
+
+    def _time_resample(self, x: np.ndarray, missing: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         T = x.shape[0]
-        rng = np.random
+        if T <= 4 or np.random.rand() >= self.time_resample_prob:
+            return x, missing
+        lo, hi = self.time_resample_range
+        rate = np.random.uniform(lo, hi)
+        new_T = max(4, int(round(T * rate)))
+        if new_T == T:
+            return x, missing
+        idx = np.linspace(0, T - 1, new_T).astype(np.int64)
+        return x[idx], missing[idx]
 
-        if T > 4:
-            keep_frac = rng.uniform(self.time_crop_min, 1.0)
-            keep_len = max(4, int(T * keep_frac))
-            start = rng.randint(0, T - keep_len + 1)
-            x = x[start : start + keep_len]
-            missing = missing[start : start + keep_len]
-            T = x.shape[0]
+    def _hflip(self, x: np.ndarray, missing: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if np.random.rand() >= self.hflip_prob:
+            return x, missing
+        pts = x.reshape(x.shape[0], -1, 3).copy()
+        pts[..., 0] = -pts[..., 0]
 
-        lo, hi = self.time_stretch_range
-        if T > 4:
-            stretch = rng.uniform(lo, hi)
-            new_T = max(4, int(round(T * stretch)))
-            if new_T != T:
-                idx = np.linspace(0, T - 1, new_T).astype(int)
-                x = x[idx]
-                missing = missing[idx]
-                T = new_T
+        lh = slice(_LEFT_HAND_LM_START, _LEFT_HAND_LM_START + _HAND_LEN)
+        rh = slice(_RIGHT_HAND_LM_START, _RIGHT_HAND_LM_START + _HAND_LEN)
+        pts[:, lh], pts[:, rh] = pts[:, rh].copy(), pts[:, lh].copy()
+        missing = missing.copy()
+        missing[:, lh], missing[:, rh] = missing[:, rh].copy(), missing[:, lh].copy()
+        return pts.reshape(x.shape[0], -1), missing
 
-        if self.group_dropout_prob > 0:
-            for start_lm, end_lm in _LANDMARK_GROUPS.values():
-                if rng.random() < self.group_dropout_prob:
-                    f_start, f_end = start_lm * 3, end_lm * 3
-                    x[:, f_start:f_end] = 0.0
-                    missing[:, start_lm:end_lm] = True
+    def _finger_dropout(self, x: np.ndarray, missing: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if self.finger_dropout_prob <= 0:
+            return x, missing
+        pts = x.reshape(x.shape[0], -1, 3).copy()
+        missing = missing.copy()
+        for hand_start in (_LEFT_HAND_LM_START, _RIGHT_HAND_LM_START):
+            for finger in _FINGERS:
+                if np.random.rand() < self.finger_dropout_prob:
+                    lms = [hand_start + i for i in finger]
+                    pts[:, lms] = 0.0
+                    missing[:, lms] = True
+        return pts.reshape(x.shape[0], -1), missing
 
+    def _group_dropout(self, x: np.ndarray, missing: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if self.group_dropout_prob <= 0:
+            return x, missing
+        x = x.copy()
+        missing = missing.copy()
+        for start_lm, end_lm in _LANDMARK_GROUPS.values():
+            if np.random.rand() < self.group_dropout_prob:
+                f_start, f_end = start_lm * 3, end_lm * 3
+                x[:, f_start:f_end] = 0.0
+                missing[:, start_lm:end_lm] = True
         return x, missing
+
+    def _affine(self, x: np.ndarray, missing: np.ndarray) -> np.ndarray:
+        """Apply a 2D affine transform (rotation, scale, shear, translate) to
+        x-y. z is scaled but not rotated/sheared.
+        """
+        if x.shape[0] == 0 or np.random.rand() >= self.affine_prob:
+            return x
+        lo, hi = self.affine_scale_range
+        scale = np.random.uniform(lo, hi)
+        shear_x = np.random.uniform(-self.affine_shear_max, self.affine_shear_max)
+        shear_y = np.random.uniform(-self.affine_shear_max, self.affine_shear_max)
+        tx = np.random.uniform(-self.affine_translate_max, self.affine_translate_max)
+        ty = np.random.uniform(-self.affine_translate_max, self.affine_translate_max)
+        theta = np.deg2rad(np.random.uniform(-self.affine_rotation_deg_max, self.affine_rotation_deg_max))
+
+        c, s = np.cos(theta), np.sin(theta)
+        # Compose order: rotation -> shear -> scale, then translate.
+        rot   = np.array([[c, -s], [s, c]], dtype=np.float32)
+        shear = np.array([[1.0, shear_x], [shear_y, 1.0]], dtype=np.float32)
+        M = (rot @ shear) * scale
+
+        pts = x.reshape(x.shape[0], -1, 3).astype(np.float32, copy=True)
+        xy = pts[..., :2]
+        xy = xy @ M.T
+        xy[..., 0] += tx
+        xy[..., 1] += ty
+        pts[..., :2] = xy
+        pts[..., 2] *= scale
+        pts[missing] = 0.0
+        return pts.reshape(x.shape[0], -1)
+
+    def _time_mask(self, x: np.ndarray) -> np.ndarray:
+        if x.shape[0] < 8 or np.random.rand() >= self.time_mask_prob:
+            return x
+        lo, hi = self.time_mask_frac_range
+        span = max(1, int(round(np.random.uniform(lo, hi) * x.shape[0])))
+        span = min(span, x.shape[0] - 1)
+        start = np.random.randint(0, x.shape[0] - span + 1)
+        x = x.copy()
+        x[start : start + span] = 0.0
+        return x
+
+    def _spatial_mask(self, x: np.ndarray, missing: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Pick a random axis-aligned rectangle in xy and zero any landmark
+        whose mean position over the sequence falls inside it.
+        """
+        if x.shape[0] == 0 or np.random.rand() >= self.spatial_mask_prob:
+            return x, missing
+        lo, hi = self.spatial_mask_frac_range
+        # The normalization layer brings most non-missing landmarks into
+        # roughly [-1.5, 1.5]; sample mask in that range.
+        bounds = 1.5
+        frac_area = np.random.uniform(lo, hi)
+        side = float(np.sqrt(frac_area)) * 2 * bounds
+        cx = np.random.uniform(-bounds, bounds)
+        cy = np.random.uniform(-bounds, bounds)
+        x_lo, x_hi = cx - side / 2, cx + side / 2
+        y_lo, y_hi = cy - side / 2, cy + side / 2
+
+        pts = x.reshape(x.shape[0], -1, 3).copy()
+        # Use mean per-landmark position across present frames so a passing
+        # finger isn't half-masked. Missing frames don't contribute.
+        present_count = (~missing).sum(axis=0).clip(min=1)
+        mean_xy = (pts[..., :2] * (~missing)[..., None]).sum(axis=0) / present_count[..., None]
+        in_box = (
+            (mean_xy[:, 0] >= x_lo) & (mean_xy[:, 0] <= x_hi) &
+            (mean_xy[:, 1] >= y_lo) & (mean_xy[:, 1] <= y_hi)
+        )
+        if in_box.any():
+            pts[:, in_box] = 0.0
+            missing = missing.copy()
+            missing[:, in_box] = True
+        return pts.reshape(x.shape[0], -1), missing
+
+    # ---- main pipeline ---------------------------------------------------
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, int, int]:
         row = self.sequences.iloc[idx]
@@ -102,46 +232,41 @@ class FingerspellingDataset(Dataset):
         try:
             data = np.load(path)
             x = data["x"].copy()
-            missing = data["missing"].copy()
+            missing = data["missing"].copy().astype(bool)
             target = data["target"].astype(np.int64)
         except FileNotFoundError:
             return torch.zeros(0, N_FEATURES), torch.zeros(0, dtype=torch.long), 0, 0
 
+        # Pre-normalization augmentations: time-domain and landmark-domain
+        # changes that must happen before wrist-anchored normalization so
+        # the normalization sees the "raw" sequence.
         if self.augment:
-            x, missing = self._apply_augmentations(x, missing)
+            x, missing = self._time_resample(x, missing)
+            # CTC requires T >= L plus room for repeat-blanks. Resamples can
+            # shrink T below L on rare long-target sequences.
+            if x.shape[0] < len(target) + 4:
+                # Re-load the unaugmented sequence instead of feeding CTC a
+                # sample it can't align.
+                data = np.load(path)
+                x = data["x"].copy()
+                missing = data["missing"].copy().astype(bool)
+            x, missing = self._hflip(x, missing)
+            x, missing = self._finger_dropout(x, missing)
+            x, missing = self._group_dropout(x, missing)
 
         if self.max_frames is not None and x.shape[0] > self.max_frames:
-            keep = np.linspace(0, x.shape[0] - 1, self.max_frames).astype(int)
+            keep = np.linspace(0, x.shape[0] - 1, self.max_frames).astype(np.int64)
             x = x[keep]
             missing = missing[keep]
 
         x = normalize_sequence(x, missing)
 
-        if self.augment and x.shape[0] > 0:
-            lo, hi = self.affine_scale_range
-            scale = np.random.uniform(lo, hi)
-            tx = np.random.uniform(-self.affine_translate, self.affine_translate)
-            ty = np.random.uniform(-self.affine_translate, self.affine_translate)
-            pts = x.reshape(x.shape[0], -1, 3)
-            pts[..., 0] = pts[..., 0] * scale + tx
-            pts[..., 1] = pts[..., 1] * scale + ty
-            pts[..., 2] = pts[..., 2] * scale
-            # Re-zero absent landmarks; normalize_sequence's zeroing was undone by the affine.
-            pts[missing] = 0.0
-            x = pts.reshape(x.shape[0], -1)
-
-        if self.augment and self.frame_mask_prob > 0 and x.shape[0] > 0:
-            zap = np.random.rand(x.shape[0]) < self.frame_mask_prob
-            x[zap] = 0.0
-
-        if self.augment and self.time_mask_max_spans > 0 and x.shape[0] >= 8:
-            n_spans = np.random.randint(0, self.time_mask_max_spans + 1)
-            for _ in range(n_spans):
-                span_len = max(1, int(np.random.uniform(0, self.time_mask_max_len_frac) * x.shape[0]))
-                if span_len >= x.shape[0]:
-                    continue
-                start = np.random.randint(0, x.shape[0] - span_len + 1)
-                x[start : start + span_len] = 0.0
+        # Post-normalization augmentations: spatial transforms in normalized
+        # space + masking. Affine before mask so the mask doesn't get warped.
+        if self.augment:
+            x = self._affine(x, missing)
+            x, missing = self._spatial_mask(x, missing)
+            x = self._time_mask(x)
 
         x_t = torch.from_numpy(x.astype(np.float32, copy=False))
         y_t = torch.from_numpy(target)

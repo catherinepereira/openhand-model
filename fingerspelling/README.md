@@ -1,13 +1,12 @@
-# CTC fingerspelling transformer
+# CTC fingerspelling model
 
-Variable-length fingerspelling transcription. Trained with CTC loss on
-the Kaggle ASL Fingerspelling competition data.
+Variable-length fingerspelling transcription. A Squeezeformer-style encoder trained with CTC loss on the Kaggle ASL Fingerspelling competition data. Architecture and augmentation set follow the [1st-place Kaggle solution](https://github.com/ChristofHenkel/kaggle-asl-fingerspelling-1st-place-solution), minus the encoder-decoder (we keep a CTC head so the backend stays single-forward).
 
 ## Quick start
 
 ```powershell
 # One-time: download the Kaggle competition data (~160 GB)
-python fingerspelling/scripts/download_data.py
+python fingerspelling/scripts/download_fingerspelling_data.py
 
 # Run the whole pipeline: preprocess -> train (with augment) -> export ONNX
 python fingerspelling/scripts/run_pipeline.py
@@ -24,7 +23,7 @@ per-epoch in the train log; the best-by-val-CER checkpoint is saved as
 
 ```powershell
 # 1. Get the data (~160 GB; you need a Kaggle account and accepted comp rules)
-python fingerspelling/scripts/download_data.py
+python fingerspelling/scripts/download_fingerspelling_data.py
 
 # 2. Preprocess: parquet shards -> per-sequence .npz files
 python fingerspelling/scripts/preprocess_fingerspelling.py
@@ -55,13 +54,14 @@ copy fingerspelling\exports\model_meta.json  ..\openhand\backend\models\artifact
 |-|-|
 | Input | (T, 381) per sequence: 127 landmarks (40 lips + 16 left eye + 16 right eye + 4 nose + 9 pose + 2*21 hands), 3 axes each |
 | Stem | Two 1D-conv blocks (kernel 5, BN, GELU) over the feature axis |
-| Encoder | 6-layer Transformer (d_model=256, nhead=8, FFN=1024, pre-LN, GELU) |
+| Encoder | 6 Squeezeformer blocks (d_model=144, nhead=4, FFN=576, depthwise conv kernel=51) |
+| Block | FFN -> MHSA -> FFN -> ConvModule (pointwise + GLU + depthwise + BN + GELU + pointwise) |
 | Head | Linear -> 60 logits per frame (59 chars + blank), log_softmax |
 | Loss | CTC + KL-to-uniform regularizer to discourage blank collapse |
 | Optimizer | AdamW, lr=1e-3, weight_decay=0.05, linear warmup then cosine |
-| Augmentation | Time crop, time stretch, frame masking, group dropout, affine jitter |
-| Params | ~5.5M |
-| Val CER | 0.235 (beam search width=10), 0.250 (greedy) |
+| Augmentation | Time resample 0.5-1.5x, affine (scale 0.8-1.2 + shear ±0.15 + translate ±0.1 + rotation ±30°), time mask 20-40%, spatial mask 5-10%, hflip with hand-swap, finger dropout, group dropout |
+| Params | ~3.3M |
+| Val CER | 0.223 (greedy) on held-out signers |
 
 ## Things that will bite you
 

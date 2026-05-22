@@ -90,8 +90,8 @@ def main():
     ap.add_argument("--weight_decay", default=0.05, type=float)
     ap.add_argument("--workers", default=2, type=int)
     ap.add_argument("--max_frames", default=384, type=int)
-    ap.add_argument("--d_model", default=256, type=int)
-    ap.add_argument("--nhead",   default=8, type=int)
+    ap.add_argument("--d_model", default=144, type=int)
+    ap.add_argument("--nhead",   default=4, type=int)
     ap.add_argument("--layers",  default=6, type=int)
     ap.add_argument("--augment", action="store_true",
                     help="Enable train-time time-crop + frame-mask augmentation")

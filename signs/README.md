@@ -1,10 +1,11 @@
 # Isolated-sign classifier
 
-250-class classification on the [Google ISLR](https://www.kaggle.com/competitions/asl-signs)
-competition data. Architecture follows the 1st-place solution's family:
+250-class classification on the [Google ISLR](https://www.kaggle.com/competitions/asl-signs) competition data. 
+Architecture follows the 1st-place solution's family:
 1D-Conv stem over the feature axis + Transformer encoder with
 attention over frames + masked global-average-pool + classification
-head. Around 3-5M params depending on `--d_model` / `--layers`.
+head. 
+Around 3-5M params depending on `--d_model` / `--layers`.
 
 ## Quick start
 
@@ -78,11 +79,5 @@ generalization is what the model needs to do at deploy time.
 
 ## Choosing references via medoid clips
 
-Per the Kaggle winners' implicit pattern, mean landmark trajectories
-across multiple clips of a sign aren't a good reference because clips
-vary in length, signer, framing, and MediaPipe noise. Averaging
-produces an unphysical blur. `build_sign_references.py` instead embeds
-every training clip with the trained encoder, computes the per-class
-centroid in embedding space, and picks the real clip closest to that
-centroid (the medoid). The frontend animates that medoid clip as the
-"this is what the sign looks like" reference.
+Mean landmark trajectories across multiple clips of a sign make a bad reference. 
+Clips vary in length, signer, framing, and MediaPipe noise, so averaging produces an unphysical blur. `build_sign_references.py` embeds every training clip with the trained encoder, computes the per-class centroid in embedding space, and picks the real clip closest to that centroid (the medoid). The frontend animates that medoid clip as the reference for the sign.

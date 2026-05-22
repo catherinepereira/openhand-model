@@ -57,6 +57,16 @@ def _fuse_conv_bn_in_place(seq: torch.nn.Sequential) -> None:
         seq.add_module(str(idx), mod)
 
 
+def _fuse_convmodule_bn(conv_module: torch.nn.Module) -> None:
+    """The Squeezeformer ConvModule has depthwise -> bn -> ... as attributes,
+    not a Sequential. Fold bn into depthwise.weight/bias and replace bn with
+    an Identity so the dynamo exporter doesn't have to handle eval-mode BN.
+    """
+    fused = torch.nn.utils.fusion.fuse_conv_bn_eval(conv_module.depthwise, conv_module.bn)
+    conv_module.depthwise = fused
+    conv_module.bn = torch.nn.Identity()
+
+
 class CTCExportWrapper(torch.nn.Module):
     """Wrapper that exposes the pad mask as a positional bool tensor;
     onnx.export doesn't handle the original keyword-only signature."""
@@ -96,6 +106,8 @@ def main():
     # Fold BatchNorm1d into the preceding Conv1d; the dynamo exporter can't
     # currently convert eval-mode BatchNorm.
     _fuse_conv_bn_in_place(inner.stem)
+    for block in inner.blocks:
+        _fuse_convmodule_bn(block.conv)
 
     model = CTCExportWrapper(inner).eval()
 
