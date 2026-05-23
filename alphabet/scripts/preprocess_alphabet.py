@@ -11,12 +11,11 @@ Expects the debashishsau ASL_Alphabet_Dataset layout:
     A/ *.jpg *.jpeg     # mix of original + multi-signer + synthetic rotated
     B/ ...
     ...
-    del/                # ignored
-    nothing/            # ignored
-    space/              # ignored
+    del/ 
+    nothing/            # ignored (no hand = no landmarks)
+    space/
 
-We only keep A-Z (26 classes). OpenHand only needs letter recognition for
-the MVP.
+28 output classes total: A-Z plus "del" and "space".
 
 Output (data/processed_alphabet/):
   X.npy           float32 (N, 63)
@@ -38,8 +37,10 @@ from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.core.base_options import BaseOptions
 from tqdm import tqdm
 
-LETTERS = [chr(ord("A") + i) for i in range(26)]
-LABEL_TO_IDX = {l: i for i, l in enumerate(LETTERS)}
+# 26 letters plus "del" (peak frame of the delete sweep) and "space" (open hand). 
+# "nothing" stays excluded; with no hand visible MediaPipe returns no landmarks, so there's no input vector for the classifier.
+CLASSES = [chr(ord("A") + i) for i in range(26)] + ["del", "space"]
+LABEL_TO_IDX = {c: i for i, c in enumerate(CLASSES)}
 
 MODEL_ROOT = Path(__file__).resolve().parent.parent
 TASK_MODEL = MODEL_ROOT.parent / "shared" / "hand_landmarker.task"
@@ -102,7 +103,7 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     with make_detector() as detector:
-        for letter in LETTERS:
+        for letter in CLASSES:
             ckpt_file = ckpt_dir / f"{letter}.npz"
             if ckpt_file.exists():
                 d = np.load(ckpt_file)
@@ -150,15 +151,15 @@ def main():
     y = np.array(all_y, dtype=np.int64)
 
     print(f"Shape: {X.shape}")
-    print("\nPer-letter counts:")
-    for i, letter in enumerate(LETTERS):
+    print("\nPer-class counts:")
+    for i, letter in enumerate(CLASSES):
         count = int((y == i).sum())
         print(f"  {letter}: {count}")
 
     np.save(args.out / "X.npy", X)
     np.save(args.out / "y.npy", y)
 
-    label_map = {str(i): l for i, l in enumerate(LETTERS)}
+    label_map = {str(i): l for i, l in enumerate(CLASSES)}
     with open(args.out / "label_map.json", "w") as f:
         json.dump(label_map, f, indent=2)
 

@@ -1,9 +1,6 @@
 # Alphabet MLP
 
-Per-frame A-Z classification, powering OpenHand's per-frame letter
-detection. 26 classes (A-Z), single hand, ~62K params. Trained on the
-[debashishsau ASL Alphabet dataset](https://www.kaggle.com/datasets/debashishsau/aslamerican-sign-language-aplhabet-dataset)
-(multiple signers + synthetic rotated copies, ~190K images).
+Per-frame A-Z classification, powering OpenHand's per-frame letter detection. 28 classes (A-Z, plus `del` and `space`), single hand, ~62K params. Trained on the [debashishsau ASL Alphabet dataset](https://www.kaggle.com/datasets/debashishsau/aslamerican-sign-language-aplhabet-dataset) (multiple signers + synthetic rotated copies, ~190K images). `nothing` is not a class: with no hand visible MediaPipe returns no landmarks, so there's no input vector for the MLP.
 
 ## Quick start
 
@@ -64,7 +61,7 @@ copy alphabet\exports\reference_landmarks.json  ..\openhand\backend\models\artif
 |-|-|
 | Input | 63 floats (21 MediaPipe hand landmarks, x/y/z, wrist at origin, p95-scaled) |
 | Hidden | 256 -> 128 -> 64, each with BatchNorm + ReLU + Dropout(0.3) |
-| Output | 26 logits |
+| Output | 28 logits |
 | Loss | CrossEntropy with `label_smoothing=0.05` |
 | Optimizer | AdamW, lr=1e-3, weight_decay=1e-4, cosine schedule |
 | Augmentation | Gaussian noise σ=0.01, scale jitter ±5% |
